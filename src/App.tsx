@@ -10,7 +10,6 @@ import {
   ChevronLeft,
   ChevronRight,
   CheckCircle2,
-  Clock,
   XCircle,
   Edit3,
   Eye,
@@ -23,19 +22,12 @@ import {
   Check,
   X,
   Phone,
-  Building2,
-  MapPin,
-  Printer,
   Menu,
   Home,
   ShieldCheck,
   Maximize2,
   Copy,
   UserPlus,
-  Calendar,
-  Filter,
-  AlertCircle,
-  Info,
   Share2,
   FileSpreadsheet,
   Image as ImageIcon,
@@ -358,7 +350,6 @@ const saveFileOfflineFirst = async (
       let finalFilename = filename;
       let targetPath = `${subfolder}/${finalFilename}`;
 
-      // بررسی عدم بازنویسی ناخواسته فایل قبلی در اندروید
       try {
         await fs.stat({ path: targetPath, directory: 'DOCUMENTS' });
         const extIndex = filename.lastIndexOf('.');
@@ -368,7 +359,7 @@ const saveFileOfflineFirst = async (
         finalFilename = `${namePart}-${timeSuffix}${extPart}`;
         targetPath = `${subfolder}/${finalFilename}`;
       } catch {
-        // فایل از قبل وجود ندارد؛ ادامه ذخیره با نام اصلی
+        // فایل از قبل وجود ندارد
       }
 
       const writeRes = await fs.writeFile({
@@ -389,7 +380,6 @@ const saveFileOfflineFirst = async (
     }
   }
 
-  // فالبک استاندارد مرورگر / وب‌ویو
   try {
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -423,7 +413,6 @@ const shareFileOfflineFirst = async (
 ): Promise<'shared' | 'cancelled' | 'downloaded' | 'error'> => {
   const cap = getCapacitor();
 
-  // ۱. استفاده از افزونه بومی Capacitor Share در اندروید
   if (cap && cap.isNativePlatform && cap.isNativePlatform() && cap.Plugins?.Filesystem && cap.Plugins?.Share) {
     try {
       const base64Data = await blobToBase64Data(blob);
@@ -450,7 +439,6 @@ const shareFileOfflineFirst = async (
     }
   }
 
-  // ۲. استفاده از Web Share API استاندارد اندروید کروم/وب‌ویو
   try {
     const file = new File([blob], filename, { type: blob.type || 'application/octet-stream' });
     const nav = navigator as Navigator & { canShare?: (data?: ShareData) => boolean };
@@ -465,142 +453,14 @@ const shareFileOfflineFirst = async (
     }
   }
 
-  // ۳. فالبک ذخیره مستقیم در صورت عدم پشتیبانی از شیت اشتراک‌گذاری
   const saved = await saveFileOfflineFirst(blob, filename);
   return saved.ok ? 'downloaded' : 'error';
 };
 
-// برش حاشیه‌های سفید بوم امضا (تا امضا در PDF و پیش‌نمایش بزرگ‌تر و واضح‌تر دیده شود)
-const trimSignatureCanvas = (
-  source: CanvasImageSource,
-  srcW: number,
-  srcH: number,
-  padding = 14
-): HTMLCanvasElement | null => {
-  try {
-    if (srcW <= 0 || srcH <= 0) return null;
-    const full = document.createElement('canvas');
-    full.width = srcW;
-    full.height = srcH;
-    const fctx = full.getContext('2d', { willReadFrequently: true } as CanvasRenderingContext2DSettings);
-    if (!fctx) return null;
-    fctx.drawImage(source, 0, 0, srcW, srcH);
-    const { data } = fctx.getImageData(0, 0, srcW, srcH);
-
-    let minX = srcW;
-    let minY = srcH;
-    let maxX = -1;
-    let maxY = -1;
-    for (let y = 0; y < srcH; y++) {
-      const rowOffset = y * srcW * 4;
-      for (let x = 0; x < srcW; x++) {
-        const idx = rowOffset + x * 4;
-        if (data[idx + 3] > 10 && (data[idx] < 235 || data[idx + 1] < 235 || data[idx + 2] < 235)) {
-          if (x < minX) minX = x;
-          if (x > maxX) maxX = x;
-          if (y < minY) minY = y;
-          if (y > maxY) maxY = y;
-        }
-      }
-    }
-    if (maxX < 0 || maxY < 0) return null;
-
-    const cx = Math.max(0, minX - padding);
-    const cy = Math.max(0, minY - padding);
-    const cw = Math.min(srcW, maxX + padding + 1) - cx;
-    const ch = Math.min(srcH, maxY + padding + 1) - cy;
-    if (cw <= 0 || ch <= 0) return null;
-
-    const out = document.createElement('canvas');
-    out.width = cw;
-    out.height = ch;
-    const octx = out.getContext('2d');
-    if (!octx) return null;
-    octx.fillStyle = '#ffffff';
-    octx.fillRect(0, 0, cw, ch);
-    octx.drawImage(full, cx, cy, cw, ch, 0, 0, cw, ch);
-    return out;
-  } catch {
-    return null;
-  }
-};
-
-// برش امضاهای قدیمی که کل صفحه سفید را ذخیره کرده‌اند (در صورت خطا همان تصویر اصلی برمی‌گردد)
-const trimSignatureDataUrl = (dataUrl: string): Promise<string> => {
-  return new Promise((resolve) => {
-    if (!dataUrl) return resolve(dataUrl);
-    const img = new Image();
-    img.onload = () => {
-      const trimmed = trimSignatureCanvas(img, img.naturalWidth, img.naturalHeight);
-      resolve(trimmed ? trimmed.toDataURL('image/png') : dataUrl);
-    };
-    img.onerror = () => resolve(dataUrl);
-    img.src = dataUrl;
-  });
-};
-
-// رسم تصویر با کیفیت بالا؛ کوچک‌کردن مرحله‌به‌مرحله (نصف‌کردن) برای جلوگیری از تاری و دندانه‌دندانه شدن خطوط نازک
-const drawImageHighQuality = (
-  ctx: CanvasRenderingContext2D,
-  src: CanvasImageSource,
-  srcW: number,
-  srcH: number,
-  dx: number,
-  dy: number,
-  dw: number,
-  dh: number
-) => {
-  let current: CanvasImageSource = src;
-  let cw = srcW;
-  let ch = srcH;
-  while (cw / 2 >= dw && ch / 2 >= dh) {
-    const step = document.createElement('canvas');
-    step.width = Math.max(1, Math.round(cw / 2));
-    step.height = Math.max(1, Math.round(ch / 2));
-    const sctx = step.getContext('2d');
-    if (!sctx) break;
-    sctx.imageSmoothingEnabled = true;
-    sctx.imageSmoothingQuality = 'high';
-    sctx.drawImage(current, 0, 0, step.width, step.height);
-    current = step;
-    cw = step.width;
-    ch = step.height;
-  }
-  ctx.imageSmoothingEnabled = true;
-  ctx.imageSmoothingQuality = 'high';
-  ctx.drawImage(current, dx, dy, dw, dh);
-};
-
-// تصویر امضا با برش خودکار حاشیه‌های سفید (برای پیش‌نمایش و خروجی PDF)
-function TrimmedSignatureImg({
-  src,
-  alt,
-  className,
-  style
-}: {
-  src: string;
-  alt: string;
-  className?: string;
-  style?: React.CSSProperties;
-}) {
-  const [displaySrc, setDisplaySrc] = useState<string>(src);
-  useEffect(() => {
-    let cancelled = false;
-    setDisplaySrc(src);
-    trimSignatureDataUrl(src).then((result) => {
-      if (!cancelled) setDisplaySrc(result);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [src]);
-  return <img src={displaySrc} alt={alt} className={className} style={style} />;
-}
-
-// موتور ۱۰۰٪ آفلاین ساخت فایل باینری PDF چندصفحه‌ای از روی بوم‌های Canvas (بدون نیاز به اینترنت یا CDN)
+// موتور ۱۰۰٪ آفلاین ساخت فایل باینری PDF چندصفحه‌ای از روی بوم‌های Canvas
 const buildMultiPagePdfBlobFromCanvases = (canvases: HTMLCanvasElement[]): Blob => {
-  const pageWidthPt = 595.28; // A4 عرض به پوینت
-  const pageHeightPt = 841.89; // A4 ارتفاع به پوینت
+  const pageWidthPt = 595.28;
+  const pageHeightPt = 841.89;
 
   const encoder = new TextEncoder();
   const chunks: Uint8Array[] = [];
@@ -644,7 +504,7 @@ const buildMultiPagePdfBlobFromCanvases = (canvases: HTMLCanvasElement[]): Blob 
 
   for (let i = 0; i < numPages; i++) {
     const canvas = canvases[i];
-    const dataUrl = canvas.toDataURL('image/jpeg', 0.97);
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
     const base64 = dataUrl.split(',')[1] || '';
     const binaryStr = atob(base64);
     const jpegBytes = new Uint8Array(binaryStr.length);
@@ -666,12 +526,10 @@ const buildMultiPagePdfBlobFromCanvases = (canvases: HTMLCanvasElement[]): Blob 
     });
   }
 
-  // Object 1: Catalog
   startObj(1);
   pushStr(`<< /Type /Catalog /Pages 2 0 R >>`);
   endObj();
 
-  // Object 2: Pages
   startObj(2);
   pushStr(`<< /Type /Pages /Kids [${pageObjIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${numPages} >>`);
   endObj();
@@ -717,15 +575,15 @@ const buildMultiPagePdfBlobFromCanvases = (canvases: HTMLCanvasElement[]): Blob 
   return new Blob(chunks, { type: 'application/pdf' });
 };
 
-// رندر مستقیم و ۱۰۰٪ آفلاین صفحات A4 فاکتور روی بوم HTML5 Canvas با پشتیبانی کامل از حروف پیوسته فارسی و امضا
+// رندر مستقیم و ۱۰۰٪ آفلاین صفحات A4 فاکتور با قلم‌های خوانا و فضای امضای بزرگ‌تر
 const renderInvoiceToOfflineCanvases = async (
   invoice: Invoice,
   settings: WorkshopSettings,
   customColumns: CustomColumnDefinition[]
 ): Promise<HTMLCanvasElement[]> => {
   const activeCustomCols = customColumns.filter((c) => !c.archived).sort((a, b) => a.order - b.order);
-  const itemsPerPageFirst = 10;
-  const itemsPerPageNext = 14;
+  const itemsPerPageFirst = 8;
+  const itemsPerPageNext = 12;
   const pages: InvoiceItemEntry[][] = [];
 
   if (invoice.items.length === 0) {
@@ -753,16 +611,13 @@ const renderInvoiceToOfflineCanvases = async (
   };
 
   const logoImg = settings.logoUrl ? await loadImageSafe(settings.logoUrl) : null;
-  const sigImgRaw = invoice.signature?.dataUrl ? await loadImageSafe(invoice.signature.dataUrl) : null;
-  const sigTrimmed = sigImgRaw
-    ? trimSignatureCanvas(sigImgRaw, sigImgRaw.naturalWidth, sigImgRaw.naturalHeight)
-    : null;
-  const sigImg: CanvasImageSource | null = sigTrimmed || sigImgRaw;
-  const sigSrcW = sigTrimmed ? sigTrimmed.width : sigImgRaw ? sigImgRaw.naturalWidth : 0;
-  const sigSrcH = sigTrimmed ? sigTrimmed.height : sigImgRaw ? sigImgRaw.naturalHeight : 0;
+  const sigImg = invoice.signature?.dataUrl ? await loadImageSafe(invoice.signature.dataUrl) : null;
 
   const totalQty = invoice.items.reduce((acc, i) => acc + (Number(i.quantity) || 0), 0);
   const totalWeight = invoice.items.reduce((acc, i) => acc + (Number(i.weightKg) || 0), 0);
+
+  const fontScale = settings.fontSize === 'small' ? 0.94 : settings.fontSize === 'large' ? 1.1 : 1.02;
+  const tableScale = settings.tableFontSize === 'small' ? 0.95 : settings.tableFontSize === 'large' ? 1.12 : 1.04;
 
   const canvases: HTMLCanvasElement[] = [];
 
@@ -772,8 +627,8 @@ const renderInvoiceToOfflineCanvases = async (
     const startRowNumber = pageIdx === 0 ? 1 : itemsPerPageFirst + (pageIdx - 1) * itemsPerPageNext + 1;
 
     const canvas = document.createElement('canvas');
-    const W = 1240; // A4 High-Res Width
-    const H = 1754; // A4 High-Res Height
+    const W = 1240;
+    const H = 1754;
     canvas.width = W;
     canvas.height = H;
 
@@ -782,27 +637,27 @@ const renderInvoiceToOfflineCanvases = async (
     ctx.fillStyle = '#ffffff';
     ctx.fillRect(0, 0, W, H);
 
-    const margin = 65;
+    const margin = 60;
     let y = margin;
 
-    // ۱. سربرگ کارگاه و لوگو
+    // ۱. سربرگ کارگاه و لوگو با قلم درشت‌تر
     let rightTextX = W - margin;
     if (logoImg) {
-      ctx.drawImage(logoImg, W - margin - 90, y, 85, 85);
-      rightTextX = W - margin - 105;
+      ctx.drawImage(logoImg, W - margin - 96, y, 90, 90);
+      rightTextX = W - margin - 112;
     }
 
     ctx.textAlign = 'right';
     ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 30px Tahoma, Arial, sans-serif';
-    ctx.fillText(settings.workshopName || 'مدیریت فاکتور کارگاه', rightTextX, y + 32);
+    ctx.font = `bold ${Math.round(35 * fontScale)}px Tahoma, Arial, sans-serif`;
+    ctx.fillText(settings.workshopName || 'مدیریت فاکتور کارگاه', rightTextX, y + 36);
+
+    ctx.fillStyle = '#1e293b';
+    ctx.font = `bold ${Math.round(24 * fontScale)}px Tahoma, Arial, sans-serif`;
+    ctx.fillText(invoice.invoiceTitle || settings.defaultInvoiceTitle, rightTextX, y + 74);
 
     ctx.fillStyle = '#334155';
-    ctx.font = 'bold 21px Tahoma, Arial, sans-serif';
-    ctx.fillText(invoice.invoiceTitle || settings.defaultInvoiceTitle, rightTextX, y + 66);
-
-    ctx.fillStyle = '#64748b';
-    ctx.font = '16px Tahoma, Arial, sans-serif';
+    ctx.font = `bold ${Math.round(18 * fontScale)}px Tahoma, Arial, sans-serif`;
     const contactLine = [
       settings.workshopPhone ? `تلفن: ${toPersianDigits(settings.workshopPhone)}` : '',
       settings.workshopAddress ? `آدرس: ${settings.workshopAddress}` : ''
@@ -810,39 +665,39 @@ const renderInvoiceToOfflineCanvases = async (
       .filter(Boolean)
       .join('  |  ');
     if (contactLine) {
-      ctx.fillText(contactLine, rightTextX, y + 96);
+      ctx.fillText(contactLine, rightTextX, y + 106);
     }
 
     // کادر مشخصات سند در سمت چپ سربرگ
-    const metaBoxW = 330;
-    const metaBoxH = 115;
+    const metaBoxW = 365;
+    const metaBoxH = 132;
     const metaBoxX = margin;
     ctx.fillStyle = '#f8fafc';
-    ctx.strokeStyle = '#cbd5e1';
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = '#64748b';
+    ctx.lineWidth = 2.2;
     ctx.fillRect(metaBoxX, y, metaBoxW, metaBoxH);
     ctx.strokeRect(metaBoxX, y, metaBoxW, metaBoxH);
 
     ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 17px Tahoma, Arial, sans-serif';
-    ctx.fillText(`شماره فاکتور: ${invoice.invoiceNumber}`, metaBoxX + metaBoxW - 16, y + 28);
-    ctx.fillText(`تاریخ فاکتور: ${toPersianDigits(invoice.date)}`, metaBoxX + metaBoxW - 16, y + 55);
+    ctx.font = `bold ${Math.round(20 * fontScale)}px Tahoma, Arial, sans-serif`;
+    ctx.fillText(`شماره فاکتور: ${invoice.invoiceNumber}`, metaBoxX + metaBoxW - 18, y + 32);
+    ctx.fillText(`تاریخ فاکتور: ${toPersianDigits(invoice.date)}`, metaBoxX + metaBoxW - 18, y + 63);
     ctx.fillText(
       `نسخه: ${toPersianDigits(invoice.version)}  (${invoice.status})`,
-      metaBoxX + metaBoxW - 16,
-      y + 82
+      metaBoxX + metaBoxW - 18,
+      y + 94
     );
-    ctx.fillStyle = '#64748b';
-    ctx.font = '14px Tahoma, Arial, sans-serif';
+    ctx.fillStyle = '#334155';
+    ctx.font = `bold ${Math.round(16 * fontScale)}px Tahoma, Arial, sans-serif`;
     ctx.fillText(
       `صفحه ${toPersianDigits(pageIdx + 1)} از ${toPersianDigits(pages.length)}`,
-      metaBoxX + metaBoxW - 16,
-      y + 104
+      metaBoxX + metaBoxW - 18,
+      y + 120
     );
 
-    y += 130;
-    ctx.strokeStyle = '#1e293b';
-    ctx.lineWidth = 3;
+    y += 148;
+    ctx.strokeStyle = '#0f172a';
+    ctx.lineWidth = 3.5;
     ctx.beginPath();
     ctx.moveTo(margin, y);
     ctx.lineTo(W - margin, y);
@@ -850,60 +705,59 @@ const renderInvoiceToOfflineCanvases = async (
 
     y += 22;
 
-    // ۲. کادر مشخصات مشتری
-    const custBoxH = invoice.customerAddress || invoice.deliveryNotes ? 105 : 70;
+    // ۲. کادر مشخصات مشتری با قلم درشت و خوانا
+    const custBoxH = invoice.customerAddress || invoice.deliveryNotes ? 124 : 84;
     ctx.fillStyle = '#f8fafc';
-    ctx.strokeStyle = '#cbd5e1';
-    ctx.lineWidth = 1.5;
+    ctx.strokeStyle = '#64748b';
+    ctx.lineWidth = 2;
     ctx.fillRect(margin, y, W - margin * 2, custBoxH);
     ctx.strokeRect(margin, y, W - margin * 2, custBoxH);
 
     ctx.fillStyle = '#0f172a';
-    ctx.font = 'bold 18px Tahoma, Arial, sans-serif';
-    ctx.fillText(`تحویل‌گیرنده / مشتری: ${invoice.customerName}`, W - margin - 18, y + 30);
+    ctx.font = `bold ${Math.round(21 * fontScale)}px Tahoma, Arial, sans-serif`;
+    ctx.fillText(`تحویل‌گیرنده / مشتری: ${invoice.customerName}`, W - margin - 20, y + 34);
 
     if (invoice.customerCompany) {
-      ctx.fillText(`شرکت / کارگاه: ${invoice.customerCompany}`, W / 2 + 60, y + 30);
+      ctx.fillText(`شرکت / کارگاه: ${invoice.customerCompany}`, W / 2 + 40, y + 34);
     }
     if (invoice.customerPhone) {
-      ctx.fillText(`تلفن: ${toPersianDigits(invoice.customerPhone)}`, margin + 230, y + 30);
+      ctx.fillText(`تلفن: ${toPersianDigits(invoice.customerPhone)}`, margin + 22, y + 34);
     }
     if (invoice.customerAddress) {
-      ctx.font = '16px Tahoma, Arial, sans-serif';
-      ctx.fillStyle = '#334155';
-      ctx.fillText(`آدرس: ${invoice.customerAddress}`, W - margin - 18, y + 62);
+      ctx.font = `bold ${Math.round(18 * fontScale)}px Tahoma, Arial, sans-serif`;
+      ctx.fillStyle = '#1e293b';
+      ctx.fillText(`آدرس: ${invoice.customerAddress}`, W - margin - 20, y + 70);
     }
     if (settings.showDeliveryNotes && invoice.deliveryNotes) {
-      ctx.font = '15px Tahoma, Arial, sans-serif';
-      ctx.fillStyle = '#475569';
-      ctx.fillText(`توضیحات تحویل: ${invoice.deliveryNotes}`, W - margin - 18, y + 90);
+      ctx.font = `bold ${Math.round(17 * fontScale)}px Tahoma, Arial, sans-serif`;
+      ctx.fillStyle = '#334155';
+      ctx.fillText(`توضیحات تحویل: ${invoice.deliveryNotes}`, W - margin - 20, y + 104);
     }
 
     y += custBoxH + 24;
 
     // ۳. جدول اقلام
     const tableW = W - margin * 2;
-    const headerH = 46;
-    ctx.fillStyle = '#1e293b';
+    const headerH = 54;
+    ctx.fillStyle = '#0f172a';
     ctx.fillRect(margin, y, tableW, headerH);
 
-    // محاسبه عرض ستون‌ها از راست به چپ
-    const colRowW = 65;
-    const colQtyW = settings.showQuantityColumn ? 105 : 0;
-    const colWeightW = settings.showWeightColumn ? 130 : 0;
-    const customColW = activeCustomCols.length > 0 ? Math.min(120, Math.floor(260 / activeCustomCols.length)) : 0;
+    const colRowW = 72;
+    const colQtyW = settings.showQuantityColumn ? 115 : 0;
+    const colWeightW = settings.showWeightColumn ? 140 : 0;
+    const customColW = activeCustomCols.length > 0 ? Math.min(130, Math.floor(260 / activeCustomCols.length)) : 0;
     const totalCustomW = customColW * activeCustomCols.length;
-    const colNameW = Math.floor((tableW - colRowW - colQtyW - colWeightW - totalCustomW) * 0.52);
+    const colNameW = Math.floor((tableW - colRowW - colQtyW - colWeightW - totalCustomW) * 0.50);
     const colDescW = tableW - colRowW - colQtyW - colWeightW - totalCustomW - colNameW;
 
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 16px Tahoma, Arial, sans-serif';
+    ctx.font = `bold ${Math.round(18 * tableScale)}px Tahoma, Arial, sans-serif`;
     let curRight = W - margin;
 
     const drawCellText = (text: string, rightEdge: number, width: number, rowY: number, alignCenter = false) => {
       ctx.save();
       ctx.beginPath();
-      ctx.rect(rightEdge - width + 4, rowY - 26, width - 8, 38);
+      ctx.rect(rightEdge - width + 4, rowY - 30, width - 8, 44);
       ctx.clip();
       if (alignCenter) {
         ctx.textAlign = 'center';
@@ -915,77 +769,77 @@ const renderInvoiceToOfflineCanvases = async (
       ctx.restore();
     };
 
-    drawCellText('ردیف', curRight, colRowW, y + 29, true);
+    drawCellText('ردیف', curRight, colRowW, y + 34, true);
     curRight -= colRowW;
-    drawCellText('نام کالا / قطعه', curRight, colNameW, y + 29, false);
+    drawCellText('نام کالا / قطعه', curRight, colNameW, y + 34, false);
     curRight -= colNameW;
     if (settings.showQuantityColumn) {
-      drawCellText('تعداد', curRight, colQtyW, y + 29, true);
+      drawCellText('تعداد', curRight, colQtyW, y + 34, true);
       curRight -= colQtyW;
     }
     if (settings.showWeightColumn) {
-      drawCellText('وزن (kg)', curRight, colWeightW, y + 29, true);
+      drawCellText('وزن (kg)', curRight, colWeightW, y + 34, true);
       curRight -= colWeightW;
     }
     activeCustomCols.forEach((col) => {
-      drawCellText(col.label, curRight, customColW, y + 29, true);
+      drawCellText(col.label, curRight, customColW, y + 34, true);
       curRight -= customColW;
     });
-    drawCellText('توضیحات فنی', curRight, colDescW, y + 29, false);
+    drawCellText('توضیحات فنی', curRight, colDescW, y + 34, false);
 
     y += headerH;
 
     // سطرهای جدول
-    const rowH = 52;
+    const rowH = 60;
     pageItems.forEach((item, idx) => {
       ctx.fillStyle = idx % 2 === 0 ? '#ffffff' : '#f8fafc';
       ctx.fillRect(margin, y, tableW, rowH);
-      ctx.strokeStyle = '#cbd5e1';
-      ctx.lineWidth = 1;
+      ctx.strokeStyle = '#94a3b8';
+      ctx.lineWidth = 1.2;
       ctx.strokeRect(margin, y, tableW, rowH);
 
       ctx.fillStyle = '#0f172a';
-      ctx.font = 'bold 16px Tahoma, Arial, sans-serif';
+      ctx.font = `bold ${Math.round(18 * tableScale)}px Tahoma, Arial, sans-serif`;
       let rX = W - margin;
 
-      drawCellText(toPersianDigits(startRowNumber + idx), rX, colRowW, y + 32, true);
+      drawCellText(toPersianDigits(startRowNumber + idx), rX, colRowW, y + 37, true);
       rX -= colRowW;
 
       const nameLabel = item.itemCode ? `${item.itemName} (${item.itemCode})` : item.itemName;
-      drawCellText(nameLabel, rX, colNameW, y + 32, false);
+      drawCellText(nameLabel, rX, colNameW, y + 37, false);
       rX -= colNameW;
 
       if (settings.showQuantityColumn) {
-        drawCellText(toPersianDigits(item.quantity), rX, colQtyW, y + 32, true);
+        drawCellText(toPersianDigits(item.quantity), rX, colQtyW, y + 37, true);
         rX -= colQtyW;
       }
       if (settings.showWeightColumn) {
-        drawCellText(toPersianDigits(item.weightKg), rX, colWeightW, y + 32, true);
+        drawCellText(toPersianDigits(item.weightKg), rX, colWeightW, y + 37, true);
         rX -= colWeightW;
       }
-      ctx.font = '15px Tahoma, Arial, sans-serif';
+      ctx.font = `bold ${Math.round(17 * tableScale)}px Tahoma, Arial, sans-serif`;
       activeCustomCols.forEach((col) => {
-        drawCellText(toPersianDigits(item.customValues?.[col.id] || '—'), rX, customColW, y + 32, true);
+        drawCellText(toPersianDigits(item.customValues?.[col.id] || '—'), rX, customColW, y + 37, true);
         rX -= customColW;
       });
-      drawCellText(item.description || '—', rX, colDescW, y + 32, false);
+      drawCellText(item.description || '—', rX, colDescW, y + 37, false);
 
       y += rowH;
     });
 
-    // ۴. بخش خلاصه جمع کل، توضیحات و امضا در صفحه آخر
+    // ۴. بخش خلاصه جمع کل، توضیحات و امضای بزرگ‌تر در صفحه آخر
     if (isLastPage) {
-      y += 18;
+      y += 20;
       ctx.fillStyle = '#f1f5f9';
-      ctx.strokeStyle = '#64748b';
-      ctx.lineWidth = 1.8;
-      ctx.fillRect(margin, y, tableW, 56);
-      ctx.strokeRect(margin, y, tableW, 56);
+      ctx.strokeStyle = '#475569';
+      ctx.lineWidth = 2;
+      ctx.fillRect(margin, y, tableW, 64);
+      ctx.strokeRect(margin, y, tableW, 64);
 
       ctx.fillStyle = '#0f172a';
-      ctx.font = 'bold 18px Tahoma, Arial, sans-serif';
+      ctx.font = `bold ${Math.round(21 * fontScale)}px Tahoma, Arial, sans-serif`;
       ctx.textAlign = 'right';
-      ctx.fillText('جمع کل اقلام تحویلی این صورت‌وضعیت:', W - margin - 18, y + 34);
+      ctx.fillText('جمع کل اقلام تحویلی این صورت‌وضعیت:', W - margin - 20, y + 39);
 
       const summaryParts: string[] = [];
       if (settings.showQuantityColumn) summaryParts.push(`مجموع تعداد: ${toPersianDigits(totalQty)} عدد`);
@@ -993,86 +847,106 @@ const renderInvoiceToOfflineCanvases = async (
         summaryParts.push(`مجموع وزن خالص: ${toPersianDigits(totalWeight.toFixed(2))} کیلوگرم`);
 
       ctx.textAlign = 'left';
-      ctx.fillText(summaryParts.join('   |   '), margin + 20, y + 34);
-      y += 74;
+      ctx.fillText(summaryParts.join('   |   '), margin + 20, y + 39);
+      y += 84;
 
       if (invoice.status === 'لغوشده' && invoice.cancellationReason) {
         ctx.fillStyle = '#fff1f2';
         ctx.strokeStyle = '#fda4af';
-        ctx.fillRect(margin, y, tableW, 54);
-        ctx.strokeRect(margin, y, tableW, 54);
+        ctx.fillRect(margin, y, tableW, 60);
+        ctx.strokeRect(margin, y, tableW, 60);
         ctx.fillStyle = '#9f1239';
         ctx.textAlign = 'right';
-        ctx.font = 'bold 16px Tahoma, Arial, sans-serif';
+        ctx.font = `bold ${Math.round(18 * fontScale)}px Tahoma, Arial, sans-serif`;
         ctx.fillText(
           `علت لغو فاکتور: ${invoice.cancellationReason} (${toPersianDigits(invoice.cancelledAtTimestamp || '')})`,
-          W - margin - 16,
-          y + 33
+          W - margin - 18,
+          y + 37
         );
-        y += 70;
+        y += 78;
       }
 
       if (settings.showNotesSection && invoice.notes) {
         ctx.fillStyle = '#ffffff';
-        ctx.strokeStyle = '#cbd5e1';
-        ctx.fillRect(margin, y, tableW, 75);
-        ctx.strokeRect(margin, y, tableW, 75);
-        ctx.fillStyle = '#334155';
+        ctx.strokeStyle = '#94a3b8';
+        ctx.lineWidth = 1.5;
+        ctx.fillRect(margin, y, tableW, 86);
+        ctx.strokeRect(margin, y, tableW, 86);
+        ctx.fillStyle = '#0f172a';
         ctx.textAlign = 'right';
-        ctx.font = 'bold 16px Tahoma, Arial, sans-serif';
-        ctx.fillText('توضیحات و شروط فنی کارگاه:', W - margin - 16, y + 28);
-        ctx.font = '15px Tahoma, Arial, sans-serif';
-        ctx.fillText(invoice.notes.slice(0, 110), W - margin - 16, y + 55);
-        y += 90;
+        ctx.font = `bold ${Math.round(18 * fontScale)}px Tahoma, Arial, sans-serif`;
+        ctx.fillText('توضیحات و شروط فنی کارگاه:', W - margin - 18, y + 32);
+        ctx.font = `bold ${Math.round(17 * fontScale)}px Tahoma, Arial, sans-serif`;
+        ctx.fillStyle = '#334155';
+        ctx.fillText(invoice.notes.slice(0, 105), W - margin - 18, y + 64);
+        y += 104;
       }
 
       if (settings.showSignatureSection) {
-        const sigBoxH = 135;
+        // فضای اختصاص‌یافته به امضا بزرگ‌تر، برجسته‌تر و خواناتر تنظیم شده است
+        const sigBoxH = 235;
         ctx.fillStyle = '#f8fafc';
-        ctx.strokeStyle = '#cbd5e1';
+        ctx.strokeStyle = '#64748b';
+        ctx.lineWidth = 2;
         ctx.fillRect(margin, y, tableW, sigBoxH);
         ctx.strokeRect(margin, y, tableW, sigBoxH);
 
         ctx.textAlign = 'right';
         ctx.fillStyle = '#0f172a';
-        ctx.font = 'bold 18px Tahoma, Arial, sans-serif';
-        ctx.fillText('وضعیت تأیید و امضای تحویل‌گیرنده:', W - margin - 20, y + 38);
+        ctx.font = `bold ${Math.round(22 * fontScale)}px Tahoma, Arial, sans-serif`;
+        ctx.fillText('وضعیت تأیید و امضای تحویل‌گیرنده:', W - margin - 24, y + 46);
 
         if (invoice.signature && sigImg) {
-          ctx.fillStyle = '#475569';
-          ctx.font = '15px Tahoma, Arial, sans-serif';
+          ctx.fillStyle = '#1e293b';
+          ctx.font = `bold ${Math.round(18 * fontScale)}px Tahoma, Arial, sans-serif`;
           ctx.fillText(
-            `امضا شده در تاریخ: ${toPersianDigits(invoice.signature.signedAt)} (نسخه ${toPersianDigits(
-              invoice.signature.invoiceVersion
-            )})`,
-            W - margin - 20,
-            y + 72
+            `امضا شده در تاریخ: ${toPersianDigits(invoice.signature.signedAt)}`,
+            W - margin - 24,
+            y + 92
           );
+          ctx.fillText(
+            `نسخه تأییدشده: نسخه ${toPersianDigits(invoice.signature.invoiceVersion)}`,
+            W - margin - 24,
+            y + 128
+          );
+          ctx.fillStyle = '#475569';
+          ctx.font = `bold ${Math.round(16 * fontScale)}px Tahoma, Arial, sans-serif`;
+          ctx.fillText(`تحویل‌گیرنده: ${invoice.customerName}`, W - margin - 24, y + 164);
+
+          const padBoxW = 430;
+          const padBoxH = 195;
+          const padBoxX = margin + 22;
+          const padBoxY = y + 20;
 
           ctx.fillStyle = '#ffffff';
-          ctx.strokeStyle = '#94a3b8';
-          ctx.fillRect(margin + 24, y + 12, 300, 112);
-          ctx.strokeRect(margin + 24, y + 12, 300, 112);
-          // قرار دادن امضا در کادر با حفظ نسبت ابعاد (بدون کشیدگی) و کیفیت بالا
-          const sigAreaW = 280;
-          const sigAreaH = 92;
-          const sigScale = Math.min(sigAreaW / sigSrcW, sigAreaH / sigSrcH);
-          const sigDrawW = Math.max(1, Math.round(sigSrcW * sigScale));
-          const sigDrawH = Math.max(1, Math.round(sigSrcH * sigScale));
-          drawImageHighQuality(
-            ctx,
-            sigImg,
-            sigSrcW,
-            sigSrcH,
-            margin + 24 + (300 - sigDrawW) / 2,
-            y + 12 + (112 - sigDrawH) / 2,
-            sigDrawW,
-            sigDrawH
-          );
+          ctx.strokeStyle = '#475569';
+          ctx.lineWidth = 2;
+          ctx.fillRect(padBoxX, padBoxY, padBoxW, padBoxH);
+          ctx.strokeRect(padBoxX, padBoxY, padBoxW, padBoxH);
+
+          // حفظ نسبت ابعاد تصویر امضا بدون کشیدگی یا برش
+          const imgRatio = sigImg.width && sigImg.height ? sigImg.width / sigImg.height : 2.2;
+          const maxDrawW = padBoxW - 36;
+          const maxDrawH = padBoxH - 42;
+          let drawW = maxDrawW;
+          let drawH = drawW / imgRatio;
+          if (drawH > maxDrawH) {
+            drawH = maxDrawH;
+            drawW = drawH * imgRatio;
+          }
+          const drawX = padBoxX + (padBoxW - drawW) / 2;
+          const drawY = padBoxY + 10 + (maxDrawH - drawH) / 2;
+
+          ctx.drawImage(sigImg, drawX, drawY, drawW, drawH);
+
+          ctx.fillStyle = '#475569';
+          ctx.font = 'bold 14px Tahoma, Arial, sans-serif';
+          ctx.textAlign = 'center';
+          ctx.fillText('امضای دیجیتال تحویل‌گیرنده', padBoxX + padBoxW / 2, padBoxY + padBoxH - 8);
         } else {
-          ctx.fillStyle = '#64748b';
-          ctx.font = 'bold 17px Tahoma, Arial, sans-serif';
-          ctx.fillText('وضعیت: امضا نشده', W - margin - 20, y + 75);
+          ctx.fillStyle = '#475569';
+          ctx.font = `bold ${Math.round(20 * fontScale)}px Tahoma, Arial, sans-serif`;
+          ctx.fillText('وضعیت: امضا نشده', W - margin - 24, y + 96);
         }
       }
     }
@@ -1089,13 +963,13 @@ const renderInvoiceToOfflineCanvases = async (
       ctx.restore();
     }
 
-    // پانویس
+    // پانویس خوانا
     ctx.textAlign = 'right';
-    ctx.fillStyle = '#94a3b8';
-    ctx.font = '14px Tahoma, Arial, sans-serif';
-    ctx.fillText('صادر شده توسط اپلیکیشن آفلاین مدیریت فاکتور کارگاه', W - margin, H - 30);
+    ctx.fillStyle = '#475569';
+    ctx.font = 'bold 16px Tahoma, Arial, sans-serif';
+    ctx.fillText('صادر شده توسط اپلیکیشن آفلاین مدیریت فاکتور کارگاه', W - margin, H - 32);
     ctx.textAlign = 'left';
-    ctx.fillText(`شماره سند: ${invoice.invoiceNumber}`, margin, H - 30);
+    ctx.fillText(`شماره سند: ${invoice.invoiceNumber}`, margin, H - 32);
 
     canvases.push(canvas);
   }
@@ -1176,7 +1050,7 @@ const STORAGE_KEYS = {
   IDB_MIGRATED_FLAG: 'workshop_idb_migrated_v1'
 };
 
-const APP_VERSION = '2.5.0-OfflineSecure';
+const APP_VERSION = '2.6.0-OfflineSecure';
 const IDB_NAME = 'WorkshopInvoiceDB';
 const IDB_VERSION = 1;
 
@@ -1676,8 +1550,8 @@ function InvoiceA4PrintPages({
     .filter((c) => !c.archived)
     .sort((a, b) => a.order - b.order);
 
-  const itemsPerPageFirst = 10;
-  const itemsPerPageNext = 14;
+  const itemsPerPageFirst = 8;
+  const itemsPerPageNext = 12;
   const pages: InvoiceItemEntry[][] = [];
 
   if (invoice.items.length === 0) {
@@ -1697,9 +1571,9 @@ function InvoiceA4PrintPages({
   const totalWeight = invoice.items.reduce((acc, i) => acc + (Number(i.weightKg) || 0), 0);
 
   const baseFontClass =
-    settings.fontSize === 'small' ? 'text-xs' : settings.fontSize === 'large' ? 'text-base' : 'text-sm';
+    settings.fontSize === 'small' ? 'text-sm' : settings.fontSize === 'large' ? 'text-lg' : 'text-base';
   const tableFontClass =
-    settings.tableFontSize === 'small' ? 'text-[11px]' : settings.tableFontSize === 'large' ? 'text-sm' : 'text-xs';
+    settings.tableFontSize === 'small' ? 'text-xs' : settings.tableFontSize === 'large' ? 'text-base' : 'text-sm';
 
   return (
     <div
@@ -1765,18 +1639,18 @@ function InvoiceA4PrintPages({
                     />
                   )}
                   <div>
-                    <h1 className="text-xl font-black text-slate-900">{settings.workshopName}</h1>
-                    <p className="text-sm font-bold text-slate-700 mt-1">
+                    <h1 className="text-2xl font-black text-slate-900">{settings.workshopName}</h1>
+                    <p className="text-base font-bold text-slate-700 mt-1">
                       {invoice.invoiceTitle || settings.defaultInvoiceTitle}
                     </p>
-                    <div className="text-xs text-slate-500 mt-1 flex flex-wrap gap-x-4 gap-y-1">
+                    <div className="text-xs text-slate-600 mt-1.5 flex flex-wrap gap-x-4 gap-y-1">
                       {settings.workshopPhone && <span>تلفن: {toPersianDigits(settings.workshopPhone)}</span>}
                       {settings.workshopAddress && <span>آدرس: {settings.workshopAddress}</span>}
                     </div>
                   </div>
                 </div>
 
-                <div className="bg-slate-50 border border-slate-300 rounded-xl p-3 min-w-[210px] text-xs space-y-1.5">
+                <div className="bg-slate-50 border border-slate-300 rounded-xl p-3 min-w-[220px] text-xs space-y-1.5">
                   <div className="flex justify-between items-center">
                     <span className="text-slate-500">شماره فاکتور:</span>
                     <span className="font-mono font-bold text-slate-900" dir="ltr">
@@ -1803,11 +1677,11 @@ function InvoiceA4PrintPages({
               </div>
 
               {/* مشخصات مشتری بدون فیلدهای خالی */}
-              <div className="bg-slate-50/70 border border-slate-300 rounded-xl p-3.5 text-xs">
+              <div className="bg-slate-50/70 border border-slate-300 rounded-xl p-4 text-xs sm:text-sm">
                 <div className="grid grid-cols-2 gap-x-6 gap-y-2">
                   <div>
                     <span className="text-slate-500">تحویل‌گیرنده / مشتری: </span>
-                    <strong className="text-slate-900 text-sm">{invoice.customerName}</strong>
+                    <strong className="text-slate-900 text-sm sm:text-base">{invoice.customerName}</strong>
                   </div>
                   {invoice.customerCompany && (
                     <div>
@@ -1862,31 +1736,31 @@ function InvoiceA4PrintPages({
                   <tbody className="divide-y divide-slate-300">
                     {pageItems.map((item, idx) => (
                       <tr key={item.id} className={idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/60'}>
-                        <td className="py-2 px-2 border-l border-slate-300 text-center font-bold text-slate-700">
+                        <td className="py-2.5 px-2 border-l border-slate-300 text-center font-bold text-slate-700">
                           {toPersianDigits(startRowNumber + idx)}
                         </td>
-                        <td className="py-2 px-3 border-l border-slate-300 font-bold text-slate-900">
+                        <td className="py-2.5 px-3 border-l border-slate-300 font-bold text-slate-900">
                           <div>{item.itemName}</div>
                           {item.itemCode && (
-                            <div className="text-[10px] text-slate-500 font-mono">کد: {item.itemCode}</div>
+                            <div className="text-[11px] text-slate-500 font-mono">کد: {item.itemCode}</div>
                           )}
                         </td>
                         {settings.showQuantityColumn && (
-                          <td className="py-2 px-2.5 border-l border-slate-300 text-center font-bold text-slate-900">
+                          <td className="py-2.5 px-2.5 border-l border-slate-300 text-center font-bold text-slate-900">
                             {toPersianDigits(item.quantity)}
                           </td>
                         )}
                         {settings.showWeightColumn && (
-                          <td className="py-2 px-2.5 border-l border-slate-300 text-center font-bold text-slate-900">
+                          <td className="py-2.5 px-2.5 border-l border-slate-300 text-center font-bold text-slate-900">
                             {toPersianDigits(item.weightKg)}
                           </td>
                         )}
                         {activeCustomCols.map((col) => (
-                          <td key={col.id} className="py-2 px-2.5 border-l border-slate-300 text-center text-slate-800">
+                          <td key={col.id} className="py-2.5 px-2.5 border-l border-slate-300 text-center text-slate-800">
                             {toPersianDigits(item.customValues?.[col.id] || '—')}
                           </td>
                         ))}
-                        <td className="py-2 px-3 text-slate-700">{item.description || '—'}</td>
+                        <td className="py-2.5 px-3 text-slate-700">{item.description || '—'}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1896,9 +1770,9 @@ function InvoiceA4PrintPages({
               {/* جمع کل و توضیحات و امضا فقط در صفحه آخر */}
               {isLastPage && (
                 <div className="space-y-4 pt-2">
-                  <div className="bg-slate-100 border border-slate-400 rounded-xl p-3 flex items-center justify-between">
-                    <span className="font-bold text-slate-800 text-xs">جمع کل اقلام تحویلی این صورت‌وضعیت:</span>
-                    <div className="flex items-center gap-6 text-sm">
+                  <div className="bg-slate-100 border border-slate-400 rounded-xl p-3.5 flex items-center justify-between">
+                    <span className="font-bold text-slate-800 text-xs sm:text-sm">جمع کل اقلام تحویلی این صورت‌وضعیت:</span>
+                    <div className="flex items-center gap-6 text-sm sm:text-base">
                       {settings.showQuantityColumn && (
                         <div>
                           <span className="text-slate-600 text-xs">مجموع تعداد: </span>
@@ -1917,43 +1791,43 @@ function InvoiceA4PrintPages({
                   </div>
 
                   {invoice.status === 'لغوشده' && invoice.cancellationReason && (
-                    <div className="bg-rose-50 border border-rose-300 rounded-xl p-3 text-xs text-rose-900">
+                    <div className="bg-rose-50 border border-rose-300 rounded-xl p-3 text-xs sm:text-sm text-rose-900">
                       <strong>علت لغو فاکتور: </strong>
                       {invoice.cancellationReason} ({invoice.cancelledAtTimestamp})
                     </div>
                   )}
 
                   {settings.showNotesSection && invoice.notes && (
-                    <div className="border border-slate-300 rounded-xl p-3 text-xs space-y-1 bg-white">
+                    <div className="border border-slate-300 rounded-xl p-3.5 text-xs sm:text-sm space-y-1 bg-white">
                       <div className="font-bold text-slate-700">توضیحات و شروط فنی کارگاه:</div>
                       <p className="text-slate-800 leading-relaxed whitespace-pre-wrap">{invoice.notes}</p>
                     </div>
                   )}
 
                   {settings.showSignatureSection && (
-                    <div className="border border-slate-300 rounded-xl p-3.5 bg-slate-50/50 flex items-center justify-between gap-4">
-                      <div className="space-y-1 text-xs">
-                        <div className="font-bold text-slate-800">وضعیت تأیید و امضای تحویل‌گیرنده:</div>
+                    <div className="border border-slate-300 rounded-xl p-4 bg-slate-50/50 flex items-center justify-between gap-4 min-h-[150px]">
+                      <div className="space-y-1.5 text-xs sm:text-sm">
+                        <div className="font-bold text-slate-900">وضعیت تأیید و امضای تحویل‌گیرنده:</div>
                         {invoice.signature ? (
-                          <div className="text-slate-600 space-y-0.5 text-[11px]">
+                          <div className="text-slate-600 space-y-1 text-xs">
                             <div>امضا شده در تاریخ: {toPersianDigits(invoice.signature.signedAt)}</div>
                             <div>مربوط به نسخه: {toPersianDigits(invoice.signature.invoiceVersion)}</div>
                           </div>
                         ) : (
-                          <span className="inline-block px-2.5 py-1 bg-slate-200 text-slate-700 rounded-md font-bold text-xs">
+                          <span className="inline-block px-3 py-1 bg-slate-200 text-slate-700 rounded-md font-bold text-xs">
                             امضا نشده
                           </span>
                         )}
                       </div>
 
                       {invoice.signature && (
-                        <div className="bg-white border border-slate-300 rounded-lg p-2 flex flex-col items-center">
-                          <TrimmedSignatureImg
+                        <div className="bg-white border border-slate-300 rounded-xl p-3 flex flex-col items-center justify-center min-w-[230px] min-h-[120px]">
+                          <img
                             src={invoice.signature.dataUrl}
                             alt="امضای مشتری"
-                            style={{ maxHeight: '80px', maxWidth: '210px', objectFit: 'contain' }}
+                            style={{ maxHeight: '105px', maxWidth: '240px', width: 'auto', height: 'auto', objectFit: 'contain' }}
                           />
-                          <span className="text-[10px] text-slate-500 mt-1">امضای دیجیتال تحویل‌گیرنده</span>
+                          <span className="text-[11px] text-slate-500 mt-1">امضای دیجیتال تحویل‌گیرنده</span>
                         </div>
                       )}
                     </div>
@@ -1962,7 +1836,7 @@ function InvoiceA4PrintPages({
               )}
             </div>
 
-            <div className="border-t border-slate-200 pt-2 mt-4 flex justify-between items-center text-[10px] text-slate-400">
+            <div className="border-t border-slate-200 pt-2 mt-4 flex justify-between items-center text-xs text-slate-500">
               <span>صادر شده توسط سامانه آفلاین مدیریت فاکتور کارگاه</span>
               <span>شماره سند: {invoice.invoiceNumber}</span>
             </div>
@@ -1974,7 +1848,7 @@ function InvoiceA4PrintPages({
 }
 
 // ==========================================
-// ۷. پد امضای تمام‌صفحه لمسی با درون‌یابی منحنی (Smooth Bezier Signature)
+// ۷. پد امضای تمام‌صفحه لمسی (Full-Screen Signature)
 // ==========================================
 
 function FullscreenSignatureModal({
@@ -1990,439 +1864,153 @@ function FullscreenSignatureModal({
   onConfirmSignature: (dataUrl: string) => void;
   onClose: () => void;
 }) {
-  interface StrokePoint {
-    x: number;
-    y: number;
-    width: number;
-  }
-
-  const containerRef = useRef<HTMLDivElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const strokesRef = useRef<StrokePoint[][]>([]);
-  const currentStrokeRef = useRef<StrokePoint[]>([]);
-  const activePointerIdRef = useRef<number | null>(null);
-  const canvasCssSizeRef = useRef<{ width: number; height: number }>({ width: 0, height: 0 });
-
+  const [isDrawing, setIsDrawing] = useState(false);
   const [hasStrokes, setHasStrokes] = useState(false);
+  const [strokeHistory, setStrokeHistory] = useState<ImageData[]>([]);
   const [showExitConfirm, setShowExitConfirm] = useState(false);
 
-  const computeStrokeWidth = (pointerType: string, pressure: number): number => {
-    // پشتیبانی اختیاری از فشار قلم لمسی (Stylus) با حفظ ضخامت یکنواخت و طبیعی برای انگشت
-    if (pointerType === 'pen' && typeof pressure === 'number' && pressure > 0 && pressure !== 0.5) {
-      return Math.max(1.7, Math.min(4.2, 1.7 + pressure * 2.4));
-    }
-    return 2.7;
-  };
-
-  const configureContextStyle = (ctx: CanvasRenderingContext2D) => {
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.miterLimit = 2;
-    ctx.strokeStyle = '#0f172a';
-    ctx.fillStyle = '#0f172a';
-  };
-
-  // رسم یک ضربه کامل با درون‌یابی منحنی درجه دوم پیوسته (C1-Continuous Quadratic Bezier Midpoint Spline)
-  const renderSingleStroke = (ctx: CanvasRenderingContext2D, pts: StrokePoint[]) => {
-    if (pts.length === 0) return;
-    configureContextStyle(ctx);
-
-    if (pts.length === 1) {
-      const p = pts[0];
-      ctx.beginPath();
-      ctx.arc(p.x, p.y, p.width / 2, 0, Math.PI * 2);
-      ctx.fill();
-      return;
-    }
-
-    if (pts.length === 2) {
-      ctx.lineWidth = (pts[0].width + pts[1].width) / 2;
-      ctx.beginPath();
-      ctx.moveTo(pts[0].x, pts[0].y);
-      ctx.lineTo(pts[1].x, pts[1].y);
-      ctx.stroke();
-      return;
-    }
-
-    // اتصال نقاط میانی با منحنی بزیه برای حذف کامل گوشه‌های تیز و شکستگی خطوط
-    ctx.beginPath();
-    ctx.moveTo(pts[0].x, pts[0].y);
-    const firstMidX = (pts[0].x + pts[1].x) / 2;
-    const firstMidY = (pts[0].y + pts[1].y) / 2;
-    ctx.lineWidth = pts[0].width;
-    ctx.lineTo(firstMidX, firstMidY);
-    ctx.stroke();
-
-    for (let i = 1; i < pts.length - 1; i++) {
-      const prevMidX = (pts[i - 1].x + pts[i].x) / 2;
-      const prevMidY = (pts[i - 1].y + pts[i].y) / 2;
-      const nextMidX = (pts[i].x + pts[i + 1].x) / 2;
-      const nextMidY = (pts[i].y + pts[i + 1].y) / 2;
-
-      ctx.beginPath();
-      ctx.lineWidth = pts[i].width;
-      ctx.moveTo(prevMidX, prevMidY);
-      ctx.quadraticCurveTo(pts[i].x, pts[i].y, nextMidX, nextMidY);
-      ctx.stroke();
-    }
-
-    const lastIdx = pts.length - 1;
-    const lastMidX = (pts[lastIdx - 1].x + pts[lastIdx].x) / 2;
-    const lastMidY = (pts[lastIdx - 1].y + pts[lastIdx].y) / 2;
-    ctx.beginPath();
-    ctx.lineWidth = pts[lastIdx].width;
-    ctx.moveTo(lastMidX, lastMidY);
-    ctx.lineTo(pts[lastIdx].x, pts[lastIdx].y);
-    ctx.stroke();
-  };
-
-  const redrawAllStrokes = (ctx: CanvasRenderingContext2D, cssWidth: number, cssHeight: number) => {
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, cssWidth, cssHeight);
-
-    const allStrokes =
-      currentStrokeRef.current.length > 0
-        ? [...strokesRef.current, currentStrokeRef.current]
-        : strokesRef.current;
-
-    if (allStrokes.length === 0) return;
-
-    // بررسی اینکه در صورت چرخش صفحه، آیا امضا از کادر جدید بیرون زده است یا خیر (بدون کشیدگی نامتناسب)
-    let maxX = 0;
-    let maxY = 0;
-    for (let s = 0; s < allStrokes.length; s++) {
-      for (let p = 0; p < allStrokes[s].length; p++) {
-        if (allStrokes[s][p].x > maxX) maxX = allStrokes[s][p].x;
-        if (allStrokes[s][p].y > maxY) maxY = allStrokes[s][p].y;
-      }
-    }
-
-    const needsUniformFit = maxX > cssWidth - 12 || maxY > cssHeight - 12;
-    if (needsUniformFit && maxX > 0 && maxY > 0) {
-      const uniformScale = Math.min((cssWidth - 24) / maxX, (cssHeight - 24) / maxY, 1);
-      ctx.save();
-      ctx.scale(uniformScale, uniformScale);
-      for (let i = 0; i < strokesRef.current.length; i++) {
-        renderSingleStroke(ctx, strokesRef.current[i]);
-      }
-      if (currentStrokeRef.current.length > 0) {
-        renderSingleStroke(ctx, currentStrokeRef.current);
-      }
-      ctx.restore();
-    } else {
-      for (let i = 0; i < strokesRef.current.length; i++) {
-        renderSingleStroke(ctx, strokesRef.current[i]);
-      }
-      if (currentStrokeRef.current.length > 0) {
-        renderSingleStroke(ctx, currentStrokeRef.current);
-      }
-    }
-  };
-
-  // آماده‌سازی فوری و بدون تأخیر بوم امضا پیش از اولین لمس و هنگام تغییر اندازه یا چرخش صفحه
-  const syncCanvasDimensions = () => {
+  const setupCanvas = () => {
     const canvas = canvasRef.current;
-    if (!canvas) return null;
+    if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return null;
+    const dpr = window.devicePixelRatio || 1;
 
-    const dpr = Math.min(window.devicePixelRatio || 1, 3);
-    const targetWidth = Math.round(rect.width * dpr);
-    const targetHeight = Math.round(rect.height * dpr);
-
-    if (canvas.width !== targetWidth || canvas.height !== targetHeight) {
-      canvas.width = targetWidth;
-      canvas.height = targetHeight;
+    let savedDataUrl: string | null = null;
+    if (hasStrokes) {
+      try {
+        savedDataUrl = canvas.toDataURL('image/png');
+      } catch {
+        // ignore
+      }
     }
-    canvasCssSizeRef.current = { width: rect.width, height: rect.height };
+
+    canvas.width = rect.width * dpr;
+    canvas.height = rect.height * dpr;
 
     const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
+    if (ctx) {
+      ctx.scale(dpr, dpr);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, rect.width, rect.height);
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 3;
 
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    configureContextStyle(ctx);
-    redrawAllStrokes(ctx, rect.width, rect.height);
-    return ctx;
+      if (savedDataUrl) {
+        const img = new Image();
+        img.onload = () => {
+          ctx.drawImage(img, 0, 0, rect.width, rect.height);
+        };
+        img.src = savedDataUrl;
+      }
+    }
   };
 
-  React.useLayoutEffect(() => {
-    syncCanvasDimensions();
-
-    const container = containerRef.current;
-    let observer: ResizeObserver | null = null;
-    if (container && typeof ResizeObserver !== 'undefined') {
-      observer = new ResizeObserver(() => {
-        syncCanvasDimensions();
-      });
-      observer.observe(container);
-    }
-
-    const handleResize = () => syncCanvasDimensions();
-    window.addEventListener('resize', handleResize);
-    window.addEventListener('orientationchange', handleResize);
-
+  useEffect(() => {
+    const timer = setTimeout(setupCanvas, 50);
+    window.addEventListener('resize', setupCanvas);
     return () => {
-      if (observer) observer.disconnect();
-      window.removeEventListener('resize', handleResize);
-      window.removeEventListener('orientationchange', handleResize);
+      clearTimeout(timer);
+      window.removeEventListener('resize', setupCanvas);
     };
   }, []);
 
-  // جلوگیری از "اسکرول/زوم مرورگر" روی اولین لمس: قفل صفحه پشت پد امضا + حذف فوکوس عنصر قبلی
-  React.useLayoutEffect(() => {
-    const html = document.documentElement;
-    const body = document.body;
-    const prev = {
-      htmlOverflow: html.style.overflow,
-      bodyOverflow: body.style.overflow,
-      htmlOverscroll: html.style.overscrollBehavior,
-      htmlTouch: html.style.touchAction,
-      bodyTouch: body.style.touchAction
+  const getPointerPos = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current!;
+    const rect = canvas.getBoundingClientRect();
+    return {
+      x: e.clientX - rect.left,
+      y: e.clientY - rect.top
     };
-    html.style.overflow = 'hidden';
-    body.style.overflow = 'hidden';
-    html.style.overscrollBehavior = 'none';
-    html.style.touchAction = 'none';
-    body.style.touchAction = 'none';
+  };
+
+  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    e.preventDefault();
+    const canvas = canvasRef.current;
+    if (!canvas) return;
     try {
-      (document.activeElement as HTMLElement | null)?.blur?.();
+      canvas.setPointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    try {
+      const snapshot = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      setStrokeHistory((prev) => [...prev.slice(-10), snapshot]);
     } catch {
       // ignore
     }
 
-    // شنونده‌های غیرغیرفعال (non-passive) تا مرورگر اولین لمس را هرگز به اسکرول/ژست تبدیل نکند
-    const canvas = canvasRef.current;
-    const prevent = (ev: TouchEvent) => {
-      if (ev.cancelable) ev.preventDefault();
-    };
-    canvas?.addEventListener('touchstart', prevent, { passive: false });
-    canvas?.addEventListener('touchmove', prevent, { passive: false });
-
-    return () => {
-      canvas?.removeEventListener('touchstart', prevent);
-      canvas?.removeEventListener('touchmove', prevent);
-      html.style.overflow = prev.htmlOverflow;
-      body.style.overflow = prev.bodyOverflow;
-      html.style.overscrollBehavior = prev.htmlOverscroll;
-      html.style.touchAction = prev.htmlTouch;
-      body.style.touchAction = prev.bodyTouch;
-    };
-  }, []);
-
-  const mapClientToCanvasPoint = (
-    rect: DOMRect,
-    clientX: number,
-    clientY: number,
-    pointerType: string,
-    pressure: number
-  ): StrokePoint => {
-    return {
-      x: clientX - rect.left,
-      y: clientY - rect.top,
-      width: computeStrokeWidth(pointerType, pressure)
-    };
-  };
-
-  const startStroke = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    // فقط دکمه اصلی یا تماس لمسی/قلم پذیرفته شود و از تداخل چندانگشتی جلوگیری گردد
-    if (e.type === 'pointerdown' && e.button !== 0 && e.pointerType === 'mouse') return;
-    if (activePointerIdRef.current !== null) return;
-
-    e.preventDefault();
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    // تضمین آماده بودن ابعاد بوم در همان لحظه اولین برخورد انگشت (صفر میلی‌ثانیه تأخیر)
-    let ctx = canvas.getContext('2d');
-    const rect = canvas.getBoundingClientRect();
-    const dpr = Math.min(window.devicePixelRatio || 1, 3);
-    if (
-      !ctx ||
-      canvas.width !== Math.round(rect.width * dpr) ||
-      canvas.height !== Math.round(rect.height * dpr)
-    ) {
-      ctx = syncCanvasDimensions();
-    }
-    if (!ctx) return;
-
-    activePointerIdRef.current = e.pointerId;
-    try {
-      canvas.setPointerCapture(e.pointerId);
-    } catch {
-      // ignore if unsupported
-    }
-
-    const firstPt = mapClientToCanvasPoint(rect, e.clientX, e.clientY, e.pointerType, e.pressure);
-    currentStrokeRef.current = [firstPt];
-
-    // رسم نقطه آغازین بلافاصله روی بوم با اولین لمس
-    configureContextStyle(ctx);
+    const pos = getPointerPos(e);
     ctx.beginPath();
-    ctx.arc(firstPt.x, firstPt.y, firstPt.width / 2, 0, Math.PI * 2);
-    ctx.fill();
-
-    if (!hasStrokes) {
-      setHasStrokes(true);
-    }
-  };
-
-  const handlePointerDown = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    startStroke(e);
+    ctx.moveTo(pos.x, pos.y);
+    setIsDrawing(true);
+    setHasStrokes(true);
   };
 
   const handlePointerMove = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    // اگر رویداد اولین لمس از دست رفته بود، همان لحظه که انگشت روی صفحه حرکت کرد امضا شروع شود
-    if (activePointerIdRef.current === null && (e.pointerType === 'touch' || (e.buttons & 1) === 1)) {
-      startStroke(e);
-      return;
-    }
-    if (activePointerIdRef.current !== e.pointerId) return;
+    if (!isDrawing) return;
     e.preventDefault();
-
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const rect = canvas.getBoundingClientRect();
-    const nativeEv = e.nativeEvent as PointerEvent;
-    const coalesced =
-      typeof nativeEv.getCoalescedEvents === 'function' ? nativeEv.getCoalescedEvents() : [nativeEv];
-    const eventsToProcess = coalesced.length > 0 ? coalesced : [nativeEv];
-
-    configureContextStyle(ctx);
-    const pts = currentStrokeRef.current;
-
-    for (let k = 0; k < eventsToProcess.length; k++) {
-      const ev = eventsToProcess[k];
-      const nextPt = mapClientToCanvasPoint(
-        rect,
-        ev.clientX,
-        ev.clientY,
-        ev.pointerType || e.pointerType,
-        typeof ev.pressure === 'number' ? ev.pressure : e.pressure
-      );
-
-      const prevPt = pts[pts.length - 1];
-      if (prevPt) {
-        const dx = nextPt.x - prevPt.x;
-        const dy = nextPt.y - prevPt.y;
-        // فیلتر لرزش‌های میکروسکوپی زیر ۰.۷۵ پیکسل برای حفظ انحنای نرم و بدون زاویه
-        if (dx * dx + dy * dy < 0.56) {
-          continue;
-        }
-      }
-
-      pts.push(nextPt);
-      const len = pts.length;
-
-      if (len === 2) {
-        const midX = (pts[0].x + pts[1].x) / 2;
-        const midY = (pts[0].y + pts[1].y) / 2;
-        ctx.beginPath();
-        ctx.lineWidth = pts[0].width;
-        ctx.moveTo(pts[0].x, pts[0].y);
-        ctx.lineTo(midX, midY);
-        ctx.stroke();
-      } else if (len >= 3) {
-        const p0 = pts[len - 3];
-        const p1 = pts[len - 2];
-        const p2 = pts[len - 1];
-
-        const mid1X = (p0.x + p1.x) / 2;
-        const mid1Y = (p0.y + p1.y) / 2;
-        const mid2X = (p1.x + p2.x) / 2;
-        const mid2Y = (p1.y + p2.y) / 2;
-
-        ctx.beginPath();
-        ctx.lineWidth = p1.width;
-        ctx.moveTo(mid1X, mid1Y);
-        ctx.quadraticCurveTo(p1.x, p1.y, mid2X, mid2Y);
-        ctx.stroke();
-      }
-    }
+    const pos = getPointerPos(e);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
   };
 
-  const finishActiveStroke = (e: React.PointerEvent<HTMLCanvasElement>) => {
-    if (activePointerIdRef.current !== e.pointerId) return;
+  const handlePointerUp = (e: React.PointerEvent<HTMLCanvasElement>) => {
+    if (!isDrawing) return;
     e.preventDefault();
-
     const canvas = canvasRef.current;
     if (canvas) {
       try {
-        if (canvas.hasPointerCapture(e.pointerId)) {
-          canvas.releasePointerCapture(e.pointerId);
-        }
+        canvas.releasePointerCapture(e.pointerId);
       } catch {
         // ignore
       }
-
-      const ctx = canvas.getContext('2d');
-      const pts = currentStrokeRef.current;
-      if (ctx && pts.length >= 2) {
-        const last = pts[pts.length - 1];
-        const prev = pts[pts.length - 2];
-        const midX = (prev.x + last.x) / 2;
-        const midY = (prev.y + last.y) / 2;
-        configureContextStyle(ctx);
-        ctx.beginPath();
-        ctx.lineWidth = last.width;
-        ctx.moveTo(midX, midY);
-        ctx.lineTo(last.x, last.y);
-        ctx.stroke();
-      }
     }
-
-    if (currentStrokeRef.current.length > 0) {
-      strokesRef.current = [...strokesRef.current, currentStrokeRef.current];
-      currentStrokeRef.current = [];
-      setHasStrokes(strokesRef.current.length > 0);
-    }
-    activePointerIdRef.current = null;
+    setIsDrawing(false);
   };
 
   const handleClear = () => {
-    strokesRef.current = [];
-    currentStrokeRef.current = [];
-    activePointerIdRef.current = null;
-    setHasStrokes(false);
-
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const { width, height } = canvasCssSizeRef.current;
     const rect = canvas.getBoundingClientRect();
     ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, width || rect.width, height || rect.height);
+    ctx.fillRect(0, 0, rect.width, rect.height);
+    setHasStrokes(false);
+    setStrokeHistory([]);
   };
 
   const handleUndo = () => {
-    if (strokesRef.current.length === 0) return;
-    strokesRef.current = strokesRef.current.slice(0, -1);
-    currentStrokeRef.current = [];
-    activePointerIdRef.current = null;
-    setHasStrokes(strokesRef.current.length > 0);
-
     const canvas = canvasRef.current;
-    if (!canvas) return;
+    if (!canvas || strokeHistory.length === 0) return;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    const rect = canvas.getBoundingClientRect();
-    redrawAllStrokes(ctx, rect.width, rect.height);
+    const previous = strokeHistory[strokeHistory.length - 1];
+    ctx.putImageData(previous, 0, 0);
+    const nextHistory = strokeHistory.slice(0, -1);
+    setStrokeHistory(nextHistory);
+    if (nextHistory.length === 0) setHasStrokes(false);
   };
 
   const handleConfirm = () => {
-    if (strokesRef.current.length === 0 || !canvasRef.current) return;
-    const canvas = canvasRef.current;
-    // ذخیره فقط ناحیه امضا (بدون حاشیه‌های سفید) تا در فاکتور و PDF بزرگ و واضح دیده شود
-    const trimmed = trimSignatureCanvas(canvas, canvas.width, canvas.height);
-    const dataUrl = (trimmed || canvas).toDataURL('image/png');
+    if (!hasStrokes || !canvasRef.current) return;
+    const dataUrl = canvasRef.current.toDataURL('image/png');
     onConfirmSignature(dataUrl);
   };
 
   const handleBackClick = () => {
-    if (strokesRef.current.length > 0) {
+    if (hasStrokes) {
       setShowExitConfirm(true);
     } else {
       onClose();
@@ -2433,15 +2021,8 @@ function FullscreenSignatureModal({
     <div
       dir="rtl"
       className="fixed inset-0 z-50 bg-slate-900 flex flex-col select-none"
-      style={{
-        width: '100vw',
-        height: '100dvh',
-        touchAction: 'none',
-        WebkitUserSelect: 'none',
-        WebkitTouchCallout: 'none'
-      }}
+      style={{ width: '100vw', height: '100dvh', touchAction: 'none' }}
     >
-      {/* نوار ابزار فشرده بالا */}
       <div className="bg-slate-900 text-white px-3 py-2 flex items-center justify-between border-b border-slate-800 shrink-0">
         <div className="flex items-center gap-2">
           <button
@@ -2459,7 +2040,7 @@ function FullscreenSignatureModal({
         </div>
 
         <div className="flex items-center gap-2">
-          {hasStrokes && (
+          {strokeHistory.length > 0 && (
             <button
               type="button"
               onClick={handleUndo}
@@ -2488,33 +2069,22 @@ function FullscreenSignatureModal({
         </div>
       </div>
 
-      {/* بوم سفید تمام‌صفحه امضا — آماده دریافت فوری اولین لمس بدون هیچ لایه مسدودکننده */}
-      <div
-        ref={containerRef}
-        className="flex-1 bg-white relative m-2 rounded-xl overflow-hidden border-2 border-slate-300 shadow-inner"
-        style={{ touchAction: 'none' }}
-      >
-        <div
-          className={`absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-slate-300 transition-opacity duration-150 ${
-            hasStrokes ? 'opacity-0' : 'opacity-100'
-          }`}
-        >
-          <PenTool className="w-10 h-10 mb-2 opacity-40" />
-          <span className="text-sm font-bold">لطفاً با انگشت یا قلم لمسی در این صفحه سفید امضا کنید</span>
-          <span className="text-xs mt-1">{customerName}</span>
-        </div>
+      <div className="flex-1 bg-white relative m-2 rounded-xl overflow-hidden border-2 border-slate-300 shadow-inner">
+        {!hasStrokes && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none text-slate-300">
+            <PenTool className="w-10 h-10 mb-2 opacity-40" />
+            <span className="text-sm font-bold">لطفاً با انگشت یا قلم لمسی در این صفحه سفید امضا کنید</span>
+            <span className="text-xs mt-1">{customerName}</span>
+          </div>
+        )}
         <canvas
           ref={canvasRef}
           onPointerDown={handlePointerDown}
           onPointerMove={handlePointerMove}
-          onPointerUp={finishActiveStroke}
-          onPointerCancel={finishActiveStroke}
+          onPointerUp={handlePointerUp}
+          onPointerCancel={handlePointerUp}
           className="w-full h-full block cursor-crosshair"
-          style={{
-            touchAction: 'none',
-            WebkitUserSelect: 'none',
-            WebkitTouchCallout: 'none'
-          }}
+          style={{ touchAction: 'none' }}
         />
       </div>
 
@@ -2586,7 +2156,6 @@ function HomeView({
         </button>
       </div>
 
-      {/* ۵ اقدام اصلی کارگاه */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
         <button
           type="button"
@@ -3606,41 +3175,10 @@ function InvoiceDetailModal({
 
   const printContainerId = `invoice-a4-render-${invoice.id}`;
 
-  // تولید ۱۰۰٪ آفلاین و تضمینی PDF در حالت پرواز (با اولویت موتور آفلاین بومی Canvas + فالبک html2canvas)
   const generatePdfDocument = async (): Promise<{ blob: Blob; filename: string } | null> => {
     setIsGeneratingPdf(true);
     try {
       const filename = `Invoice-${invoice.invoiceNumber}-v${invoice.version}.pdf`;
-      const w = window as unknown as {
-        html2canvas?: (el: HTMLElement, opts?: Record<string, unknown>) => Promise<HTMLCanvasElement>;
-        jspdf?: { jsPDF: new (orientation: string, unit: string, format: string) => any };
-      };
-
-      const container = document.getElementById(printContainerId);
-      const pageElements = container
-        ? (Array.from(container.querySelectorAll('.a4-page-sheet')) as HTMLElement[])
-        : [];
-
-      // اگر کتابخانه DOM آماده بود از آن استفاده می‌کنیم، در غیر این صورت یا در حالت آفلاین کامل از موتور بومی Canvas استفاده می‌شود
-      if (w.html2canvas && pageElements.length > 0) {
-        try {
-          const domCanvases: HTMLCanvasElement[] = [];
-          for (let i = 0; i < pageElements.length; i++) {
-            const c = await w.html2canvas(pageElements[i], {
-              scale: 2,
-              useCORS: true,
-              backgroundColor: '#ffffff',
-              logging: false
-            });
-            domCanvases.push(c);
-          }
-          const pdfBlob = buildMultiPagePdfBlobFromCanvases(domCanvases);
-          return { blob: pdfBlob, filename };
-        } catch {
-          // در صورت هرگونه خطا، به موتور ۱۰۰٪ آفلاین Canvas سوییچ می‌شود
-        }
-      }
-
       const offlineCanvases = await renderInvoiceToOfflineCanvases(invoice, settings, customColumns);
       const blob = buildMultiPagePdfBlobFromCanvases(offlineCanvases);
       return { blob, filename };
@@ -3699,7 +3237,6 @@ function InvoiceDetailModal({
 
   return (
     <div className="fixed inset-0 z-40 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-2 sm:p-4 overflow-y-auto">
-      {/* رندر خارج از صفحه برای تولید دقیق PDF A4 */}
       <InvoiceA4PrintPages
         invoice={invoice}
         settings={settings}
@@ -3708,7 +3245,6 @@ function InvoiceDetailModal({
       />
 
       <div className="bg-white rounded-2xl shadow-xl border border-slate-200 max-w-4xl w-full max-h-[92vh] flex flex-col overflow-hidden">
-        {/* هدر مدال */}
         <div className="p-4 bg-slate-900 text-white flex items-center justify-between shrink-0">
           <div className="flex items-center gap-2.5">
             <FileText className="w-5 h-5 text-amber-400" />
@@ -3724,7 +3260,6 @@ function InvoiceDetailModal({
           </button>
         </div>
 
-        {/* نوار دکمه‌های عملیاتی */}
         <div className="p-3 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center gap-2 shrink-0">
           <button
             type="button"
@@ -3816,7 +3351,6 @@ function InvoiceDetailModal({
           )}
         </div>
 
-        {/* محتوای قابل اسکرول فاکتور */}
         <div className="p-4 sm:p-6 overflow-y-auto space-y-5 text-xs sm:text-sm">
           <div className="flex flex-wrap items-center justify-between gap-2 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
             <div className="flex items-center gap-2">
@@ -3836,7 +3370,6 @@ function InvoiceDetailModal({
             </div>
           )}
 
-          {/* جدول اقلام */}
           <div className="border border-slate-200 rounded-xl overflow-x-auto">
             <table className="w-full text-right border-collapse text-xs">
               <thead>
@@ -3865,7 +3398,6 @@ function InvoiceDetailModal({
             </table>
           </div>
 
-          {/* جمع کل */}
           <div className="bg-slate-900 text-white p-4 rounded-xl flex flex-wrap items-center justify-between gap-4">
             <span className="font-bold text-xs">جمع کل اقلام این فاکتور:</span>
             <div className="flex items-center gap-6 text-xs sm:text-sm">
@@ -3878,7 +3410,6 @@ function InvoiceDetailModal({
             </div>
           </div>
 
-          {/* نمایش امضای ذخیره شده */}
           <div className="border border-slate-200 rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
             <div>
               <h4 className="font-bold text-slate-900 text-xs sm:text-sm">امضای تحویل‌گیرنده</h4>
@@ -3892,17 +3423,16 @@ function InvoiceDetailModal({
               )}
             </div>
             {invoice.signature && (
-              <div className="bg-white border border-slate-300 rounded-xl p-2">
-                <TrimmedSignatureImg
+              <div className="bg-white border border-slate-300 rounded-xl p-3">
+                <img
                   src={invoice.signature.dataUrl}
                   alt="امضا"
-                  className="max-h-20 object-contain"
+                  className="max-h-24 object-contain"
                 />
               </div>
             )}
           </div>
 
-          {/* تاریخچه نسخه‌ها و مقایسه (Part 2 Prompt 5) */}
           {invoice.versionHistory && invoice.versionHistory.length > 0 && (
             <div className="border border-blue-200 bg-blue-50/40 rounded-xl p-4 space-y-3">
               <div className="flex items-center justify-between">
@@ -3941,7 +3471,6 @@ function InvoiceDetailModal({
             </div>
           )}
 
-          {/* تاریخچه رویدادها */}
           {invoice.activities && invoice.activities.length > 0 && (
             <div className="border border-slate-200 rounded-xl p-4 space-y-2">
               <h4 className="font-bold text-slate-800 text-xs flex items-center gap-1.5">
@@ -3961,7 +3490,6 @@ function InvoiceDetailModal({
         </div>
       </div>
 
-      {/* مدال لغو فاکتور با دلیل اجباری */}
       {showCancelModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/70 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-5 max-w-md w-full space-y-4">
@@ -4006,7 +3534,6 @@ function InvoiceDetailModal({
         </div>
       )}
 
-      {/* مدال مشاهده یا مقایسه نسخه قدیمی */}
       {(showCompareModal || selectedHistoricalVersion) && (
         <div className="fixed inset-0 z-50 bg-slate-950/70 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-5 max-w-2xl w-full max-h-[85vh] overflow-y-auto space-y-4">
@@ -4144,7 +3671,6 @@ function NewInvoiceWorkflow({
     editingInvoice?.items || recoveredDraft?.items || []
   );
 
-  // در صورت اصلاح فاکتور نهایی، امضای قبلی به نسخه جدید منتقل نمی‌شود
   const [signatureDataUrl, setSignatureDataUrl] = useState<string | null>(
     isAmending ? null : editingInvoice?.signature?.dataUrl || null
   );
@@ -4152,15 +3678,13 @@ function NewInvoiceWorkflow({
     isAmending ? null : editingInvoice?.signature?.signedAt || null
   );
 
-  // فرم افزودن قلم کالا در گام ۲
   const [itemNameInput, setItemNameInput] = useState('');
   const [itemCodeInput, setItemCodeInput] = useState('');
-  const [itemQtyInput, setItemQtyInput] = useState<string>('');
-  const [itemWeightInput, setItemWeightInput] = useState<string>('');
+  const [itemQtyInput, setItemQtyInput] = useState<string>('1');
+  const [itemWeightInput, setItemWeightInput] = useState<string>('0');
   const [itemDescInput, setItemDescInput] = useState('');
   const [customFieldValues, setCustomFieldValues] = useState<Record<string, string>>({});
 
-  // مشتری سریع
   const [showQuickCustomerModal, setShowQuickCustomerModal] = useState(false);
   const [quickCustName, setQuickCustName] = useState('');
   const [quickCustPhone, setQuickCustPhone] = useState('');
@@ -4168,7 +3692,6 @@ function NewInvoiceWorkflow({
 
   const activeCustomCols = customColumns.filter((c) => !c.archived).sort((a, b) => a.order - b.order);
 
-  // ذخیره خودکار پیش‌نویس در حین تایپ
   useEffect(() => {
     if (editingInvoice) return;
     setDraftSaveStatus('saving');
@@ -4220,7 +3743,6 @@ function NewInvoiceWorkflow({
 
     setInvoiceItems((prev) => [...prev, newEntry]);
 
-    // اگر کالای وارد شده در کاتالوگ نبود، آن را به کاتالوگ هم اضافه کنیم
     const existsInCatalog = items.some((i) => i.name.trim() === itemNameInput.trim());
     if (!existsInCatalog) {
       onAddNewItemQuick({
@@ -4233,8 +3755,8 @@ function NewInvoiceWorkflow({
 
     setItemNameInput('');
     setItemCodeInput('');
-    setItemQtyInput('');
-    setItemWeightInput('');
+    setItemQtyInput('1');
+    setItemWeightInput('0');
     setItemDescInput('');
     setCustomFieldValues({});
   };
@@ -4311,7 +3833,6 @@ function NewInvoiceWorkflow({
         />
       )}
 
-      {/* نوار پیشرفت مراحل */}
       <div className="bg-white border border-slate-200 rounded-xl p-4 shadow-2xs">
         <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
           <div>
@@ -4379,7 +3900,6 @@ function NewInvoiceWorkflow({
         </div>
       </div>
 
-      {/* گام ۱: انتخاب مشتری و تاریخ */}
       {currentStep === 1 && (
         <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
           <div className="flex items-center justify-between">
@@ -4445,13 +3965,11 @@ function NewInvoiceWorkflow({
         </div>
       )}
 
-      {/* گام ۲: افزودن اقلام، تعداد و وزن */}
       {currentStep === 2 && (
         <div className="space-y-4">
           <form onSubmit={handleAddItemRow} className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
             <h3 className="font-bold text-slate-900 text-sm">گام دوم: افزودن قطعات، تعداد و وزن (کیلوگرم)</h3>
 
-            {/* انتخاب سریع از کاتالوگ */}
             <div className="flex flex-wrap gap-1.5">
               {items.map((it) => (
                 <button
@@ -4542,7 +4060,6 @@ function NewInvoiceWorkflow({
             </div>
           </form>
 
-          {/* لیست اقلام اضافه شده */}
           <div className="bg-white border border-slate-200 rounded-xl p-4 space-y-3">
             <div className="flex items-center justify-between">
               <h4 className="font-bold text-xs sm:text-sm text-slate-800">
@@ -4609,7 +4126,6 @@ function NewInvoiceWorkflow({
         </div>
       )}
 
-      {/* گام ۳: توضیحات فنی و تحویل */}
       {currentStep === 3 && (
         <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 text-xs sm:text-sm">
           <h3 className="font-bold text-slate-900 text-sm">گام سوم: توضیحات فاکتور و شرایط تحویل</h3>
@@ -4653,7 +4169,6 @@ function NewInvoiceWorkflow({
         </div>
       )}
 
-      {/* گام ۴: امضای تمام‌صفحه مشتری */}
       {currentStep === 4 && (
         <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4 text-center">
           <h3 className="font-bold text-slate-900 text-sm">گام چهارم: امضای دیجیتال تحویل‌گیرنده (اختیاری)</h3>
@@ -4720,7 +4235,6 @@ function NewInvoiceWorkflow({
         </div>
       )}
 
-      {/* گام ۵: بررسی نهایی و تأیید */}
       {currentStep === 5 && (
         <div className="bg-white border border-slate-200 rounded-xl p-5 space-y-4">
           <h3 className="font-bold text-slate-900 text-sm">گام پنجم: بررسی نهایی و ثبت فاکتور</h3>
@@ -4780,7 +4294,6 @@ function NewInvoiceWorkflow({
         </div>
       )}
 
-      {/* مدال تعریف سریع مشتری */}
       {showQuickCustomerModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-5 max-w-sm w-full space-y-3">
@@ -5110,7 +4623,6 @@ function SettingsView({
         </div>
       )}
 
-      {/* A. امنیت برنامه */}
       <section className="bg-white border border-slate-200 rounded-xl p-5 shadow-2xs space-y-4">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2">
@@ -5193,7 +4705,6 @@ function SettingsView({
         </div>
       </section>
 
-      {/* B. وضعیت ذخیره‌سازی */}
       <section className="bg-white border border-slate-200 rounded-xl p-5 shadow-2xs space-y-4">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2">
@@ -5229,7 +4740,6 @@ function SettingsView({
         </div>
       </section>
 
-      {/* C. پشتیبان‌گیری و بازیابی */}
       <section className="bg-white border border-slate-200 rounded-xl p-5 shadow-2xs space-y-4">
         <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
           <Download className="w-5 h-5 text-slate-800" />
@@ -5316,7 +4826,6 @@ function SettingsView({
         )}
       </section>
 
-      {/* فرم مشخصات کارگاه و ظاهر فاکتور */}
       <form onSubmit={handleFormSubmit} className="bg-white border border-slate-200 rounded-xl p-5 shadow-2xs space-y-4">
         <div className="flex items-center gap-2 border-b border-slate-100 pb-3">
           <Sliders className="w-5 h-5 text-slate-800" />
@@ -5379,7 +4888,6 @@ function SettingsView({
         </div>
       </form>
 
-      {/* D. بسته نصبی مستقل اندروید (Capacitor & APK Configuration) */}
       <section className="bg-white border border-slate-200 rounded-xl p-5 shadow-2xs space-y-4">
         <div className="flex items-center justify-between border-b border-slate-100 pb-3">
           <div className="flex items-center gap-2">
@@ -5440,7 +4948,6 @@ function SettingsView({
         )}
       </section>
 
-      {/* مدال پین ۴ رقمی */}
       {pinModalMode && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-5 max-w-sm w-full space-y-4">
@@ -5512,7 +5019,6 @@ function SettingsView({
         </div>
       )}
 
-      {/* مدال تأیید بازیابی پشتیبان */}
       {pendingRestoreData && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl p-5 max-w-md w-full space-y-4">
@@ -5746,7 +5252,6 @@ export default function App() {
     idbStorage.set(STORAGE_KEYS.SECURITY_CONFIG, securityConfig);
   }, [securityConfig, isStorageHydrated]);
 
-  // مدیریت چرخه حیات اندروید (قفل خودکار هنگام رفتن به پس‌زمینه و دکمه بازگشت سخت‌افزاری اندروید)
   useEffect(() => {
     const handleVisibilityOrAppState = (isActive: boolean) => {
       if (!isActive) {
@@ -5779,7 +5284,6 @@ export default function App() {
     };
     document.addEventListener('visibilitychange', onVisChange);
 
-    // اتصال به رویدادهای بومی Capacitor در اندروید (StatusBar, App State, Hardware Back Button)
     const cap = getCapacitor();
     let backListenerRemove: (() => void) | undefined;
     let stateListenerRemove: (() => void) | undefined;
@@ -5964,7 +5468,6 @@ export default function App() {
       }
     }
 
-    // موتور اکسل ۱۰۰٪ آفلاین داخلی برای حالت پرواز (Airplane Mode)
     const invRows: (string | number)[][] = [];
     invoices.forEach((inv) => {
       inv.items.forEach((it) => {
@@ -6236,7 +5739,6 @@ export default function App() {
 
   return (
     <div dir="rtl" className="min-h-screen bg-slate-50 text-slate-800 flex flex-col font-sans select-none antialiased">
-      {/* اعلان شناور */}
       {notice && (
         <div
           className={`fixed bottom-4 left-4 right-4 sm:left-auto sm:right-6 sm:max-w-md z-50 p-3.5 rounded-xl shadow-lg border text-xs font-bold flex items-center justify-between gap-3 ${
@@ -6252,7 +5754,6 @@ export default function App() {
         </div>
       )}
 
-      {/* هدر اصلی برنامه */}
       <header className="bg-slate-900 text-white sticky top-0 z-30 shadow-xs">
         <div className="max-w-6xl mx-auto px-4 h-14 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -6344,7 +5845,6 @@ export default function App() {
         )}
       </header>
 
-      {/* بنر وضعیت آفلاین */}
       <div className="bg-slate-100 border-b border-slate-200 px-4 py-1.5 text-center text-[11px] text-slate-600 flex flex-wrap items-center justify-center gap-2">
         <span className="flex items-center gap-1 font-bold text-emerald-800">
           <ShieldCheck className="w-3.5 h-3.5 text-emerald-600" />
@@ -6362,7 +5862,6 @@ export default function App() {
         )}
       </div>
 
-      {/* بنر بازیابی پیش‌نویس ناتمام */}
       {recoveredDraftBanner && currentView !== 'new-invoice' && (
         <div className="max-w-4xl w-full mx-auto px-4 pt-4">
           <div className="bg-amber-50 border border-amber-300 rounded-xl p-3.5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
@@ -6401,7 +5900,6 @@ export default function App() {
         </div>
       )}
 
-      {/* محتوای صفحه فعال */}
       <main className="flex-1 max-w-6xl w-full mx-auto p-4 sm:p-6">
         {currentView === 'home' && (
           <HomeView
@@ -6547,7 +6045,6 @@ export default function App() {
         )}
       </main>
 
-      {/* مدال جزئیات و چاپ فاکتور */}
       {selectedInvoiceForModal && (
         <InvoiceDetailModal
           invoice={selectedInvoiceForModal}
